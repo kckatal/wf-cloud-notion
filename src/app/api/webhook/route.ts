@@ -34,7 +34,7 @@ export async function POST(req: Request) {
 
   // Handle initial subscription verification POST
   if (!headerSignature && body?.verification_token) {
-    console.log('Notion webhook verification_token:', body.verification_token);
+    console.log('notion webhook verification_token:', body.verification_token);
     // If a token is configured, ensure it matches the incoming token
     if (NOTION_WEBHOOK_VERIFICATION_TOKEN && body.verification_token !== NOTION_WEBHOOK_VERIFICATION_TOKEN) {
       return new Response('Verification token mismatch', { status: 401 });
