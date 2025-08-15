@@ -29,6 +29,7 @@ function isValidSignature(rawBody: string, headerSignature: string | null, verif
 export async function POST(req: Request) {
   console.log('webhook POST invoked');
   const rawBody = await req.text();
+  console.log('webhook raw body:', rawBody);
   const body = JSON.parse(rawBody) as NotionWebhookBody;
 
   const headerSignature = req.headers.get('x-notion-signature');
