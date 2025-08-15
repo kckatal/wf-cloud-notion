@@ -47,6 +47,7 @@ export async function POST(req: Request) {
   });
 
   const headerSignature = req.headers.get('x-notion-signature');
+  const verificationEnabled = Boolean(NOTION_WEBHOOK_VERIFICATION_TOKEN);
 
   // Handle initial subscription verification POST
   if (!headerSignature && body?.verification_token) {
@@ -58,8 +59,12 @@ export async function POST(req: Request) {
   }
 
   // For subsequent calls, validate signature
-  if (!isValidSignature(rawBody, headerSignature, NOTION_WEBHOOK_VERIFICATION_TOKEN)) {
-    return new Response('Invalid signature', { status: 401 });
+  if (verificationEnabled) {
+    if (!isValidSignature(rawBody, headerSignature, NOTION_WEBHOOK_VERIFICATION_TOKEN)) {
+      return new Response('Invalid signature', { status: 401 });
+    }
+  } else {
+    console.log('Skipping Notion signature validation (NOTION_WEBHOOK_VERIFICATION_TOKEN not set)');
   }
 
   const notionData = {
