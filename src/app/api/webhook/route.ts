@@ -5,22 +5,23 @@ type NotionProperties = {
   Slug?: { rich_text: NotionRichText[] };
   Content?: { rich_text: NotionRichText[] };
 };
-type NotionWebhookBody = {
-  pageId?: string;
-  properties?: NotionProperties;
-  verification_token?: string;
-  // Fields commonly present in Notion webhook envelopes (for logging/troubleshooting)
-  id?: string;
-  type?: string;
-  entity?: unknown;
-  data?: unknown;
-};
+// type NotionWebhookBody = {
+//   pageId?: string;
+//   properties?: NotionProperties;
+//   verification_token?: string;
+//   // Fields commonly present in Notion webhook envelopes (for logging/troubleshooting)
+//   id?: string;
+//   type?: string;
+//   entity?: unknown;
+//   data?: unknown;
+// };
 type NotionData = { id: string; title?: string; slug?: string; content?: string };
 
 type WebflowItem = { _id: string };
 type WebflowListResponse = { items?: WebflowItem[] };
 
 const NOTION_WEBHOOK_VERIFICATION_TOKEN = process.env.NOTION_WEBHOOK_VERIFICATION_TOKEN || '';
+const NOTION_TOKEN = process.env.NOTION_TOKEN || '';
 
 function calculateNotionSignature(rawBody: string, verificationToken: string): string {
   return `sha256=${createHmac('sha256', verificationToken).update(rawBody).digest('hex')}`;
@@ -39,12 +40,34 @@ export async function POST(req: Request) {
   console.log('webhook POST invoked');
   const rawBody = await req.text();
   console.log('webhook raw body:', rawBody);
-  const body = JSON.parse(rawBody) as NotionWebhookBody;
+  const body = JSON.parse(rawBody);
+  const type = body.type;
+  const pageId = body.entity?.id;
   console.log('webhook envelope summary:', {
-    id: body?.id,
-    type: body?.type,
-    hasProperties: Boolean((body as any)?.properties),
+    type,
+    pageId,
   });
+
+  if (type === 'page.content_updated') {
+    fetch(`https://api.notion.com/v1/pages/${pageId}`, {
+    method: 'GET',
+    headers: {
+        'Authorization': `Bearer ${NOTION_TOKEN}`,
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json'
+    }
+    })
+    .then(res => res.json())
+    .then(data => {
+    console.log('Page Metadata:', data);
+    })
+    .catch(err => {
+    console.error('Error:', err);
+    });
+
+  } else {
+    console.log('webhook skip');
+  }
 
   const headerSignature = req.headers.get('x-notion-signature');
   const verificationEnabled = Boolean(NOTION_WEBHOOK_VERIFICATION_TOKEN);
