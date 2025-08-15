@@ -5,7 +5,16 @@ type NotionProperties = {
   Slug?: { rich_text: NotionRichText[] };
   Content?: { rich_text: NotionRichText[] };
 };
-type NotionWebhookBody = { pageId?: string; properties?: NotionProperties; verification_token?: string };
+type NotionWebhookBody = {
+  pageId?: string;
+  properties?: NotionProperties;
+  verification_token?: string;
+  // Fields commonly present in Notion webhook envelopes (for logging/troubleshooting)
+  id?: string;
+  type?: string;
+  entity?: unknown;
+  data?: unknown;
+};
 type NotionData = { id: string; title?: string; slug?: string; content?: string };
 
 type WebflowItem = { _id: string };
@@ -31,12 +40,16 @@ export async function POST(req: Request) {
   const rawBody = await req.text();
   console.log('webhook raw body:', rawBody);
   const body = JSON.parse(rawBody) as NotionWebhookBody;
+  console.log('webhook envelope summary:', {
+    id: body?.id,
+    type: body?.type,
+    hasProperties: Boolean((body as any)?.properties),
+  });
 
   const headerSignature = req.headers.get('x-notion-signature');
 
   // Handle initial subscription verification POST
   if (!headerSignature && body?.verification_token) {
-    console.log('notion webhook verification_token:', body.verification_token);
     // If a token is configured, ensure it matches the incoming token
     if (NOTION_WEBHOOK_VERIFICATION_TOKEN && body.verification_token !== NOTION_WEBHOOK_VERIFICATION_TOKEN) {
       return new Response('Verification token mismatch', { status: 401 });
@@ -55,8 +68,16 @@ export async function POST(req: Request) {
     slug: body.properties?.Slug?.rich_text[0]?.plain_text,
     content: body.properties?.Content?.rich_text[0]?.plain_text
   };
+  console.log('derived notionData:', notionData);
 
   // Forward to Webflow
+  if (!notionData.slug || !notionData.title) {
+    console.log('webflow skip: missing required fields', {
+      hasSlug: Boolean(notionData.slug),
+      hasTitle: Boolean(notionData.title),
+    });
+  }
+
   const webflowResponse = await updateOrCreateWebflowItem(notionData);
 
   return new Response(JSON.stringify({ success: true, webflowResponse }));
@@ -69,6 +90,7 @@ async function updateOrCreateWebflowItem(notionData: NotionData) {
   const { slug, title, content } = notionData;
 
   // First: Try to find existing item by slug (or a custom field)
+  console.log('webflow find by slug start', { slug });
   const existing = (await fetch(
     `https://api.webflow.com/v2/collections/${COLLECTION_ID}/items?slug=${slug}`,
     {
@@ -77,12 +99,17 @@ async function updateOrCreateWebflowItem(notionData: NotionData) {
         'Content-Type': 'application/json'
       }
     }
-  ).then(res => res.json())) as WebflowListResponse;
+  ).then(async res => {
+    const json = await res.json().catch(() => ({}));
+    console.log('webflow find by slug result', { status: res.status, ok: res.ok, json });
+    return json;
+  })) as WebflowListResponse;
 
   if (existing && Array.isArray(existing.items) && existing.items.length > 0) {
     const itemId = existing.items[0]._id;
 
     // Update item
+    console.log('webflow update start', { itemId, title, slug, hasContent: Boolean(content) });
     return await fetch(`https://api.webflow.com/v2/collections/${COLLECTION_ID}/items/${itemId}`, {
       method: 'PATCH',
       headers: {
@@ -98,10 +125,15 @@ async function updateOrCreateWebflowItem(notionData: NotionData) {
           content
         }
       })
-    }).then(res => res.json());
+    }).then(async res => {
+      const json = await res.json().catch(() => ({}));
+      console.log('webflow update result', { status: res.status, ok: res.ok, json });
+      return json;
+    });
   }
 
   // Create new item
+  console.log('webflow create start', { title, slug, hasContent: Boolean(content) });
   return await fetch(`https://api.webflow.com/v2/collections/${COLLECTION_ID}/items`, {
     method: 'POST',
     headers: {
@@ -117,5 +149,9 @@ async function updateOrCreateWebflowItem(notionData: NotionData) {
         content
       }
     })
-  }).then(res => res.json());
+  }).then(async res => {
+    const json = await res.json().catch(() => ({}));
+    console.log('webflow create result', { status: res.status, ok: res.ok, json });
+    return json;
+  });
 }
